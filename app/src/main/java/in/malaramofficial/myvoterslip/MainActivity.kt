@@ -38,16 +38,16 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var query: EditText
     private lateinit var results: LinearLayout
-    private var voterLines: List<String> = emptyList()
+    private var voterRecords: List<String> = emptyList()
     private val prefs by lazy { getSharedPreferences("voter_slip_local", MODE_PRIVATE) }
     private val pickPdf = 701
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        voterLines = prefs.getString("ocr_text", "").orEmpty()
-            .split("\n").map { it.trim() }.filter { it.isNotBlank() }
+        voterRecords = prefs.getString("ocr_records", "").orEmpty()
+            .split("\n\n---RECORD---\n\n").map { it.trim() }.filter { it.isNotBlank() }
         buildScreen()
-        renderResults(voterLines)
+        renderResults(voterRecords)
     }
 
     private fun buildScreen() {
@@ -186,7 +186,7 @@ class MainActivity : Activity() {
             background = roundedBg(Color.rgb(235, 240, 246), 12)
             setOnClickListener {
                 query.setText("")
-                renderResults(voterLines)
+                renderResults(voterRecords)
             }
         }
         actions.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) })
@@ -256,19 +256,19 @@ class MainActivity : Activity() {
                                 val result = com.google.android.gms.tasks.Tasks.await(
                                     recognizer.process(InputImage.fromBitmap(bitmap, 0))
                                 )
-                                allText.append(result.text).append('\n')
+                                result.textBlocks.forEach { block -> allText.append(block.text.trim()).append("\n") }
+                                allText.append("\n")
                                 bitmap.recycle()
                             }
                         }
                     }
                 }
-                val extracted = allText.toString().lines().map { it.trim() }
-                    .filter { it.isNotBlank() }.distinct()
-                prefs.edit().putString("ocr_text", extracted.joinToString("\n")).apply()
-                voterLines = extracted
+                val extracted = splitIntoVoterRecords(allText.toString())
+                prefs.edit().putString("ocr_records", extracted.joinToString("\n\n---RECORD---\n\n")).apply()
+                voterRecords = extracted
                 runOnUiThread {
-                    status.text = "पूरा हुआ: ${extracted.size} OCR लाइनें मिलीं। गलत पढ़े टेक्स्ट को जाँचें।"
-                    renderResults(voterLines)
+                    status.text = "पूरा हुआ: ${extracted.size} मतदाता रिकॉर्ड मिले। नाम/विवरण मिलाकर जाँचें।"
+                    renderResults(voterRecords)
                     Toast.makeText(this, "PDF OCR पूरा हुआ", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
@@ -283,22 +283,22 @@ class MainActivity : Activity() {
     private fun filterResults() {
         val term = query.text.toString().trim()
         if (term.isEmpty()) {
-            renderResults(voterLines)
+            renderResults(voterRecords)
             return
         }
-        renderResults(voterLines.filter { it.contains(term, ignoreCase = true) })
+        renderResults(voterRecords.filter { it.contains(term, ignoreCase = true) })
     }
 
-    private fun renderResults(lines: List<String>) {
+    private fun renderResults(records: List<String>) {
         results.removeAllViews()
         val count = TextView(this).apply {
-            text = if (lines.isEmpty()) "अभी कोई परिणाम नहीं" else "${lines.size} परिणाम"
+            text = if (records.isEmpty()) "अभी कोई परिणाम नहीं" else "${records.size} मतदाता रिकॉर्ड"
             textSize = 12f
             setTextColor(Color.rgb(102, 116, 133))
             setPadding(dp(2), 0, dp(2), dp(8))
         }
         results.addView(count, matchWrap())
-        if (lines.isEmpty()) {
+        if (records.isEmpty()) {
             val empty = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -328,7 +328,7 @@ class MainActivity : Activity() {
             results.addView(empty, matchWrap())
             return
         }
-        lines.take(1000).forEachIndexed { index, line ->
+        records.take(1000).forEachIndexed { index, record ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(15), dp(14), dp(15), dp(14))
@@ -347,7 +347,7 @@ class MainActivity : Activity() {
                 setPadding(dp(9), dp(7), dp(9), dp(7))
             }
             val label = TextView(this).apply {
-                text = "OCR से प्राप्त टेक्स्ट"
+                text = "पूरा मतदाता रिकॉर्ड"
                 textSize = 11f
                 setTextColor(Color.rgb(111, 125, 142))
                 setPadding(dp(10), 0, 0, 0)
@@ -356,7 +356,7 @@ class MainActivity : Activity() {
             top.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             card.addView(top, matchWrap())
             card.addView(TextView(this).apply {
-                text = line
+                text = record
                 textSize = 16f
                 setTextColor(Color.rgb(35, 47, 63))
                 setPadding(0, dp(12), 0, dp(12))
@@ -367,10 +367,53 @@ class MainActivity : Activity() {
                 isAllCaps = false
                 setTextColor(Color.WHITE)
                 background = roundedBg(Color.rgb(24, 91, 160), 12)
-                setOnClickListener { showSlipPreview(line) }
+                setOnClickListener { showSlipPreview(record) }
             }, matchWrap())
             results.addView(card, matchWrap().apply { bottomMargin = dp(10) })
         }
+    }
+
+    private fun splitIntoVoterRecords(raw: String): List<String> {
+        val normalized = raw.replace("\r", "")
+            .replace(Regex("[ \\t]+"), " ")
+            .trim()
+        if (normalized.isBlank()) return emptyList()
+        val lines = normalized.lines().map { it.trim() }.filter { it.isNotBlank() }
+        if (lines.isEmpty()) return emptyList()
+
+        val nameStart = Regex("(?i)^(?:निर्वाचक\\s*का\\s*नाम|मतदाता\\s*का\\s*नाम|नाम\\s*[:：])")
+        val epic = Regex("(?i)\\b[A-Z]{2,4}\\s?\\d{6,8}\\b")
+        val serial = Regex("(?i)^(?:मतदाता\\s*)?(?:क्रमांक|अनुक्रमांक|क्र\\.?\\s*सं\\.?)\\s*[:：.-]?\\s*\\d+")
+        val nameStarts = lines.indices.filter { nameStart.containsMatchIn(lines[it]) }
+        val epicStarts = lines.indices.filter { epic.containsMatchIn(lines[it]) }
+        val serialStarts = lines.indices.filter { serial.containsMatchIn(lines[it]) }
+        // Prefer one reliable boundary type, so a name and EPIC from the same voter
+        // cannot accidentally split that voter's record into two separate slips.
+        val starts = when {
+            nameStarts.size >= 2 -> nameStarts
+            epicStarts.size >= 2 -> epicStarts
+            serialStarts.size >= 2 -> serialStarts
+            else -> emptyList()
+        }
+
+        if (starts.size >= 2) {
+            val chunks = mutableListOf<String>()
+            var current = StringBuilder()
+            lines.forEachIndexed { index, line ->
+                if (index in starts && current.isNotEmpty()) {
+                    chunks.add(current.toString().trim())
+                    current = StringBuilder()
+                }
+                if (current.isNotEmpty()) current.append('\n')
+                current.append(line)
+            }
+            if (current.isNotEmpty()) chunks.add(current.toString().trim())
+            return chunks.filter { it.isNotBlank() }
+        }
+
+        // If OCR misses voter-boundary labels, keep the complete paragraph/page text
+        // together rather than making a false separate slip for every individual line.
+        return listOf(lines.joinToString("\n"))
     }
 
     private fun roundedBg(color: Int, radiusDp: Int, strokeColor: Int? = null): android.graphics.drawable.GradientDrawable {
