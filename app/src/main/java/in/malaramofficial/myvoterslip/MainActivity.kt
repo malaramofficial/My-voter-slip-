@@ -402,7 +402,7 @@ class MainActivity : Activity() {
 
     private fun looksLikeVoterCard(text: String): Boolean {
         if (text.length < 12) return false
-        val devanagariChars = text.count { it in '\\u0900'..'\\u097F' }
+        val devanagariChars = text.count { it.code in 0x0900..0x097F }
         val hasEpic = Regex("(?i)\\b[A-Z]{2,4}\\s?\\d{6,8}\\b").containsMatchIn(text)
         // Reject empty cells and page headings; accept Hindi voter text or an EPIC-like ID.
         return hasEpic || devanagariChars >= 5
