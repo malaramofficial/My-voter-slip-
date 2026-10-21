@@ -19,7 +19,7 @@ LEFT, RIGHT, TOP, BOTTOM = 0.012, 0.988, 0.105, 0.982
 EPIC_RE = re.compile(r"\b[A-Z]{2,4}\s*[-/]?\s*\d{5,8}\b", re.I)
 FIELD_PATTERNS = {
     "relative_name": re.compile(r"(?:पिता\s*का\s*नाम|पति\s*का\s*नाम|माता\s*का\s*नाम|अन्य\s*का\s*नाम|father'?s?\s*name|husband'?s?\s*name|mother'?s?\s*name|relative'?s?\s*name)\s*[:：\-]?\s*(.+)", re.I),
-    "name": re.compile(r"(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|नाम|name)\s*[:：\-]?\s*(.+)", re.I),
+    "name": re.compile(r"^\s*(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|name|नाम\s*[:：])\s*[:：\-]?\s*(.+)", re.I),
     "house_no": re.compile(r"(?:मकान\s*(?:संख्या|नं?\.?)|घर\s*संख्या|house\s*(?:no|number))\s*[:：\-]?\s*(.+)", re.I),
     "age": re.compile(r"(?:आयु|उम्र|age)\s*[:：\-]?\s*([०-९0-9]{1,3})", re.I),
     "gender": re.compile(r"(?:लिंग|gender)\s*[:：\-]?\s*(महिला|पुरुष|अन्य|female|male|other)", re.I),
