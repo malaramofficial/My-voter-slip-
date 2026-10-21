@@ -2,6 +2,9 @@ name: OCR voter-list PDFs and build offline HTML
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/process-voter-pdfs.yml'
 
 permissions:
   contents: read
