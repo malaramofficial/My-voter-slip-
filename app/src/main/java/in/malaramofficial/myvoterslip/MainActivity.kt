@@ -4,6 +4,12 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.BitmapFactory
+import android.provider.MediaStore
+import android.content.ContentValues
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
@@ -187,10 +193,10 @@ class MainActivity : Activity() {
             })
             return
         }
-        lines.take(1000).forEachIndexed { index, line ->
+        lines.take(1000).forEach { line ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+                setPadding(dp(14), dp(12), dp(14), dp(12))
                 setBackgroundColor(Color.WHITE)
             }
             card.addView(TextView(this).apply {
@@ -198,26 +204,160 @@ class MainActivity : Activity() {
                 textSize = 17f
                 setTextColor(Color.rgb(30, 37, 48))
             })
-            val share = Button(this).apply {
-                text = "इसी टेक्स्ट की पर्ची शेयर करें"
-                setOnClickListener { shareSlip(line) }
-            }
-            card.addView(share, matchWrap())
+            card.addView(Button(this).apply {
+                text = "पर्ची इमेज बनाएं"
+                setOnClickListener { showSlipPreview(line) }
+            }, matchWrap())
             results.addView(card, matchWrap())
-            results.addView(TextView(this).apply {
-                text = ""
-                setPadding(0, dp(3), 0, dp(3))
-            })
+            results.addView(TextView(this).apply { text = ""; setPadding(0, dp(3), 0, dp(3)) })
         }
     }
 
-    private fun shareSlip(text: String) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "वोटर पर्ची")
-            putExtra(Intent.EXTRA_TEXT, "वोटर सूची से चयनित विवरण\n\n$text")
+    private fun showSlipPreview(voterText: String) {
+        val bitmap = createSlipBitmap(voterText)
+        val image = android.widget.ImageView(this).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+            setBackgroundColor(Color.WHITE)
         }
-        startActivity(Intent.createChooser(intent, "चयनित पर्ची शेयर करें"))
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            addView(image, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(430)
+            ))
+            addView(Button(this@MainActivity).apply {
+                text = "इमेज WhatsApp पर शेयर करें"
+                setOnClickListener { shareSlipImage(bitmap, voterText) }
+            }, matchWrap())
+            addView(Button(this@MainActivity).apply {
+                text = "इमेज फोन में सेव करें"
+                setOnClickListener { saveSlipImage(bitmap) }
+            }, matchWrap())
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("वोटर पर्ची का पूर्वावलोकन")
+            .setView(container)
+            .setPositiveButton("बंद करें", null)
+            .show()
+    }
+
+    private fun createSlipBitmap(voterText: String): Bitmap {
+        val width = 900
+        val padding = 42f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(35, 45, 60)
+            textSize = 34f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        val lines = voterText.lines().flatMap { raw ->
+            val words = raw.split(Regex("\\s+"))
+            val wrapped = mutableListOf<String>()
+            var current = ""
+            for (word in words) {
+                val candidate = if (current.isEmpty()) word else "$current $word"
+                if (paint.measureText(candidate) > width - padding * 2) {
+                    if (current.isNotEmpty()) wrapped.add(current)
+                    current = word
+                } else current = candidate
+            }
+            if (current.isNotEmpty()) wrapped.add(current)
+            wrapped
+        }.ifEmpty { listOf(voterText) }
+        val rowHeight = 52
+        val height = (220 + lines.size * rowHeight + 100).coerceAtLeast(520)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(24, 78, 132)
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+        }
+        canvas.drawRoundRect(18f, 18f, width - 18f, height - 18f, 24f, 24f, border)
+        val heading = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(24, 78, 132)
+            textSize = 48f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("मतदाता पर्ची", width / 2f, 92f, heading)
+        val sub = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.DKGRAY
+            textSize = 25f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("वोटर सूची से प्राप्त विवरण", width / 2f, 138f, sub)
+        val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(210, 220, 232)
+            strokeWidth = 2f
+        }
+        canvas.drawLine(padding, 165f, width - padding, 165f, linePaint)
+        var y = 220f
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(35, 45, 60)
+            textSize = 34f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        lines.forEach { line ->
+            canvas.drawText(line, padding, y, body)
+            y += rowHeight
+        }
+        val footer = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.GRAY
+            textSize = 20f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("कृपया मूल मतदाता सूची से विवरण सत्यापित करें", width / 2f, height - 45f, footer)
+        return bitmap
+    }
+
+    private fun saveSlipImage(bitmap: Bitmap) {
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "VoterSlip_${System.currentTimeMillis()}.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VoterSlips")
+                }
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("फोन में इमेज सेव नहीं हो सकी")
+            contentResolver.openOutputStream(uri).use { output ->
+                requireNotNull(output) { "इमेज फाइल नहीं खुली" }
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+            Toast.makeText(this, "पर्ची इमेज फोन में सेव हो गई", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "सेव करने में त्रुटि: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun shareSlipImage(bitmap: Bitmap, voterText: String) {
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "VoterSlip_${System.currentTimeMillis()}.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VoterSlips")
+                }
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("इमेज तैयार नहीं हो सकी")
+            contentResolver.openOutputStream(uri).use { output ->
+                requireNotNull(output) { "इमेज फाइल नहीं खुली" }
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "मतदाता पर्ची")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "पर्ची इमेज शेयर करें"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "शेयर करने में त्रुटि: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun matchWrap() = LinearLayout.LayoutParams(
