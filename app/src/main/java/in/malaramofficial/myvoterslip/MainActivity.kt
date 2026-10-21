@@ -238,14 +238,14 @@ class MainActivity : Activity() {
                     requireNotNull(input) { "PDF नहीं खुली" }
                     FileOutputStream(file).use { output -> input.copyTo(output) }
                 }
-                val allText = StringBuilder()
+                val extracted = mutableListOf<String>()
                 val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 descriptor.use { pfd ->
                     PdfRenderer(pfd).use { renderer ->
                         for (index in 0 until renderer.pageCount) {
-                            runOnUiThread { status.text = "OCR चल रहा है: पेज ${index + 1}/${renderer.pageCount}" }
+                            runOnUiThread { status.text = "मतदाता कार्ड खोज रहे हैं: पेज ${index + 1}/${renderer.pageCount}" }
                             renderer.openPage(index).use { page ->
-                                val scale = (1600f / page.width).coerceAtMost(3f)
+                                val scale = (1800f / page.width).coerceAtMost(3f)
                                 val bitmap = Bitmap.createBitmap(
                                     (page.width * scale).toInt().coerceAtLeast(1),
                                     (page.height * scale).toInt().coerceAtLeast(1),
@@ -253,17 +253,44 @@ class MainActivity : Activity() {
                                 )
                                 bitmap.eraseColor(Color.WHITE)
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                val result = com.google.android.gms.tasks.Tasks.await(
-                                    recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                                )
-                                result.textBlocks.forEach { block -> allText.append(block.text.trim()).append("\n") }
-                                allText.append("\n")
+
+                                // Standard Indian electoral-roll pages usually use a 3 x 10 voter-card grid.
+                                // OCR each card crop independently so one card becomes one record.
+                                val left = (bitmap.width * 0.015f).toInt()
+                                val right = (bitmap.width * 0.985f).toInt()
+                                val top = (bitmap.height * 0.105f).toInt()
+                                val bottom = (bitmap.height * 0.98f).toInt()
+                                val cellWidth = (right - left) / 3
+                                val cellHeight = (bottom - top) / 10
+
+                                for (row in 0 until 10) {
+                                    for (column in 0 until 3) {
+                                        val x = left + column * cellWidth
+                                        val y = top + row * cellHeight
+                                        val w = if (column == 2) right - x else cellWidth
+                                        val h = if (row == 9) bottom - y else cellHeight
+                                        if (w <= 0 || h <= 0) continue
+                                        val card = Bitmap.createBitmap(bitmap, x, y, w, h)
+                                        try {
+                                            val result = com.google.android.gms.tasks.Tasks.await(
+                                                recognizer.process(InputImage.fromBitmap(card, 0))
+                                            )
+                                            val cardText = result.textBlocks
+                                                .map { it.text.trim() }
+                                                .filter { it.isNotBlank() }
+                                                .joinToString("\n")
+                                                .trim()
+                                            if (looksLikeVoterCard(cardText)) extracted.add(cardText)
+                                        } finally {
+                                            card.recycle()
+                                        }
+                                    }
+                                }
                                 bitmap.recycle()
                             }
                         }
                     }
                 }
-                val extracted = splitIntoVoterRecords(allText.toString())
                 prefs.edit().putString("ocr_records", extracted.joinToString("\n\n---RECORD---\n\n")).apply()
                 voterRecords = extracted
                 runOnUiThread {
@@ -371,6 +398,14 @@ class MainActivity : Activity() {
             }, matchWrap())
             results.addView(card, matchWrap().apply { bottomMargin = dp(10) })
         }
+    }
+
+    private fun looksLikeVoterCard(text: String): Boolean {
+        if (text.length < 12) return false
+        val devanagariChars = text.count { it in '\\u0900'..'\\u097F' }
+        val hasEpic = Regex("(?i)\\b[A-Z]{2,4}\\s?\\d{6,8}\\b").containsMatchIn(text)
+        // Reject empty cells and page headings; accept Hindi voter text or an EPIC-like ID.
+        return hasEpic || devanagariChars >= 5
     }
 
     private fun splitIntoVoterRecords(raw: String): List<String> {
