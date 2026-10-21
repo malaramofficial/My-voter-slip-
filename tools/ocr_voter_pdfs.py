@@ -18,8 +18,8 @@ GRID_COLS, GRID_ROWS = 3, 10
 LEFT, RIGHT, TOP, BOTTOM = 0.012, 0.988, 0.105, 0.982
 EPIC_RE = re.compile(r"\b[A-Z]{2,4}\s*[-/]?\s*\d{5,8}\b", re.I)
 FIELD_PATTERNS = {
-    "name": re.compile(r"(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|नाम|name)\s*[:：\-]?\s*(.+)", re.I),
     "relative_name": re.compile(r"(?:पिता\s*का\s*नाम|पति\s*का\s*नाम|माता\s*का\s*नाम|अन्य\s*का\s*नाम|father'?s?\s*name|husband'?s?\s*name|mother'?s?\s*name|relative'?s?\s*name)\s*[:：\-]?\s*(.+)", re.I),
+    "name": re.compile(r"(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|नाम|name)\s*[:：\-]?\s*(.+)", re.I),
     "house_no": re.compile(r"(?:मकान\s*(?:संख्या|नं?\.?)|घर\s*संख्या|house\s*(?:no|number))\s*[:：\-]?\s*(.+)", re.I),
     "age": re.compile(r"(?:आयु|उम्र|age)\s*[:：\-]?\s*([०-९0-9]{1,3})", re.I),
     "gender": re.compile(r"(?:लिंग|gender)\s*[:：\-]?\s*(महिला|पुरुष|अन्य|female|male|other)", re.I),
@@ -60,10 +60,22 @@ def ocr_card(img: Image.Image) -> tuple[str, float]:
     best_text, best_score = "", -1.0
     for variant in variants:
         data = pytesseract.image_to_data(variant, lang="hin+eng", config="--psm 6", output_type=Output.DICT)
-        words = [w.strip() for w in data["text"] if w and w.strip()]
-        confs = [float(c) for c, w in zip(data["conf"], data["text"]) if w and w.strip() and c not in ("-1", "")]
-        text = pytesseract.image_to_string(variant, lang="hin+eng", config="--psm 6").strip()
-        score = (sum(confs) / len(confs) if confs else 0) + min(len(words), 30) * 0.25
+        grouped = {}
+        confs = []
+        for i, word in enumerate(data["text"]):
+            word = (word or "").strip()
+            if not word:
+                continue
+            key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+            grouped.setdefault(key, []).append(word)
+            try:
+                confidence = float(data["conf"][i])
+                if confidence >= 0:
+                    confs.append(confidence)
+            except (ValueError, TypeError):
+                pass
+        text = "\n".join(" ".join(words) for _, words in sorted(grouped.items())).strip()
+        score = (sum(confs) / len(confs) if confs else 0) + min(sum(len(v) for v in grouped.values()), 30) * 0.25
         if len(text) > len(best_text) and score >= best_score - 3:
             best_text, best_score = text, score
         elif score > best_score and len(text) >= max(12, len(best_text) * 0.7):
