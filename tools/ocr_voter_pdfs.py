@@ -29,6 +29,8 @@ DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789"
 
 def norm(value: str) -> str:
     value = unicodedata.normalize("NFC", value or "").lower()
+    value = re.sub(r"\b(?:photo\s*is|available|photo|is)\b", " ", value, flags=re.I)
+    value = re.sub(r"\s+(?:ना|पि|af|ar|at|मव)$", "", value, flags=re.I)
     return re.sub(r"[^\w]", "", value, flags=re.UNICODE)
 
 def parse_fields(text: str) -> dict:
