@@ -232,8 +232,8 @@ class MainActivity : Activity() {
                     "पृष्ठ" to item.optString("page", "")
                 ).filter { it.second.isNotBlank() && it.second != "null" }
                 val raw = item.optString("raw_ocr", "")
-                val record = fields.joinToString("\\n") { "${it.first}: ${it.second}" } +
-                    if (raw.isNotBlank()) "\\nमूल OCR पाठ:\\n$raw" else ""
+                val record = fields.joinToString("\n") { "${it.first}: ${it.second}" } +
+                    if (raw.isNotBlank()) "\nमूल OCR पाठ:\n$raw" else ""
                 if (record.isNotBlank()) imported.add(record)
             }
             imported
