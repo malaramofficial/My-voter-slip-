@@ -42,11 +42,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-hin tesseract-ocr-eng fonts-noto-core
-          python3 -m pip install --user -r tools/requirements-ocr.txt
+          python3 -m venv .venv
+          .venv/bin/pip install -r tools/requirements-ocr.txt
 
       - name: OCR bundled voter PDFs
         run: |
-          python3 tools/ocr_voter_pdfs.py
+          .venv/bin/python tools/ocr_voter_pdfs.py
           mkdir -p app/src/main/assets
           cp ocr-output/voters.json app/src/main/assets/voters.json
           python3 -c "import json; d=json.load(open('ocr-output/voters.json', encoding='utf-8')); print('PDFs:', len(d.get('source_pdfs', [])), 'records:', d.get('count', 0)); assert len(d.get('source_pdfs', [])) == 7, 'Expected all seven voter-list PDFs'; assert d.get('count', 0) > 0, 'OCR produced no voter records'"
