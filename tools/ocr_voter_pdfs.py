@@ -19,10 +19,10 @@ LEFT, RIGHT, TOP, BOTTOM = 0.012, 0.988, 0.105, 0.982
 EPIC_RE = re.compile(r"\b[A-Z]{2,4}\s*[-/]?\s*\d{5,8}\b", re.I)
 FIELD_PATTERNS = {
     "relative_name": re.compile(r"(?:पिता\s*का\s*नाम|पति\s*का\s*नाम|माता\s*का\s*नाम|अन्य\s*का\s*नाम|father'?s?\s*name|husband'?s?\s*name|mother'?s?\s*name|relative'?s?\s*name)\s*[:：\-]?\s*(.+)", re.I),
-    "name": re.compile(r"^\s*(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|name|नाम\s*[:：])\s*[:：\-]?\s*(.+)", re.I),
+    "name": re.compile(r"^\s*(?:निर्वाचक\s*का\s*नाम|मतदाता\s*का\s*नाम|name|नाम|प्र)\s*[:：\-]?\s*(.+)", re.I),
     "house_no": re.compile(r"(?:मकान\s*(?:संख्या|नं?\.?)|घर\s*संख्या|house\s*(?:no|number))\s*[:：\-]?\s*(.+)", re.I),
     "age": re.compile(r"(?:आयु|उम्र|age)\s*[:：\-]?\s*([०-९0-9]{1,3})", re.I),
-    "gender": re.compile(r"(?:लिंग|gender)\s*[:：\-]?\s*(महिला|पुरुष|अन्य|female|male|other)", re.I),
+    "gender": re.compile(r"(?:लिंग|gender)\s*[:：\-]?\s*(महिला|महिल|स्त्री|पुरुष|पुरूष|पुरू|अन्य|female|male|other)", re.I),
     "serial_no": re.compile(r"(?:क्रम\s*संख्या|serial\s*(?:no|number)?|क्र\.?\s*सं\.?)\s*[:：\-]?\s*([०-९0-9]{1,5})", re.I),
 }
 DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
@@ -48,6 +48,12 @@ def parse_fields(text: str) -> dict:
             if "पिता" in line or "father" in low: fields["relation_type"] = "पिता"
             elif "पति" in line or "husband" in low: fields["relation_type"] = "पति"
             elif "माता" in line or "mother" in low: fields["relation_type"] = "माता"
+    for key in ("name", "relative_name", "house_no"):
+        value = fields[key]
+        value = re.sub(r"\b(?:Photo\s*is|Available)\b", " ", value, flags=re.I)
+        value = re.sub(r"\s+", " ", value).strip(" :-|_")
+        value = re.sub(r"\s+(?:ना|पि|af|ar|at|मव)$", "", value, flags=re.I)
+        fields[key] = value
     fields["age"] = fields["age"].translate(DEVANAGARI_DIGITS)
     fields["serial_no"] = fields["serial_no"].translate(DEVANAGARI_DIGITS)
     fields["house_no"] = fields["house_no"].strip()
@@ -84,7 +90,7 @@ def ocr_card(img: Image.Image) -> tuple[str, float]:
 
 def looks_like_record(text: str, fields: dict) -> bool:
     devanagari = sum(1 for c in text if "\u0900" <= c <= "\u097f")
-    return len(text) >= 16 and (bool(fields["epic"]) or devanagari >= 5)
+    return len(text) >= 16 and bool(fields["epic"]) and bool(fields["name"] or fields["relative_name"])
 
 def main():
     pdfs = sorted(PDF_DIR.glob("*.pdf"), key=lambda p: p.name.lower())
