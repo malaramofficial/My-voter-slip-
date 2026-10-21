@@ -48,6 +48,12 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         voterRecords = prefs.getString("ocr_records", "").orEmpty()
             .split("\n\n---RECORD---\n\n").map { it.trim() }.filter { it.isNotBlank() }
+        if (voterRecords.isEmpty()) {
+            voterRecords = loadBundledRecords()
+            if (voterRecords.isNotEmpty()) {
+                prefs.edit().putString("ocr_records", voterRecords.joinToString("\n\n---RECORD---\n\n")).apply()
+            }
+        }
         buildScreen()
         renderResults(voterRecords)
     }
@@ -122,44 +128,8 @@ class MainActivity : Activity() {
         }
         content.addView(sectionTitle, matchWrap())
 
-        val import = Button(this).apply {
-            text = "＋  PDF वोटर सूची चुनें"
-            textSize = 15f
-            isAllCaps = false
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Color.WHITE)
-            background = roundedBg(Color.rgb(24, 91, 160), 15)
-            setPadding(dp(14), dp(7), dp(14), dp(7))
-            setOnClickListener {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/pdf"
-                }
-                startActivityForResult(intent, pickPdf)
-            }
-        }
-        content.addView(import, matchWrap())
-
-        val importJson = Button(this).apply {
-            text = "डेटा JSON फाइल से लोड करें"
-            textSize = 14f
-            isAllCaps = false
-            setTextColor(Color.rgb(39, 66, 96))
-            background = roundedBg(Color.rgb(232, 240, 249), 13)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setOnClickListener {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
-                }
-                startActivityForResult(intent, pickJson)
-            }
-        }
-        content.addView(importJson, matchWrap().apply { topMargin = dp(8) })
-
         status = TextView(this).apply {
-            text = "शुरू करने के लिए अपनी PDF फाइल चुनें।"
+            text = if (voterRecords.isEmpty()) "इस ऐप में मतदाता डेटा उपलब्ध नहीं है।" else "ऐप में पहले से ${voterRecords.size} मतदाता रिकॉर्ड मौजूद हैं।"
             textSize = 13f
             setTextColor(Color.rgb(82, 98, 116))
             setPadding(dp(2), dp(10), dp(2), dp(10))
@@ -239,6 +209,37 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
         setContentView(root)
+    }
+
+    private fun loadBundledRecords(): List<String> {
+        return try {
+            val jsonText = assets.open("voters.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val rootObject = JSONObject(jsonText)
+            val array = rootObject.optJSONArray("records") ?: return emptyList()
+            val imported = mutableListOf<String>()
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val fields = listOf(
+                    "नाम" to item.optString("name", ""),
+                    "पिता/पति/अन्य का नाम" to item.optString("relative_name", ""),
+                    "मकान नंबर" to item.optString("house_no", ""),
+                    "आयु" to item.optString("age", ""),
+                    "लिंग" to item.optString("gender", ""),
+                    "EPIC नंबर" to item.optString("epic", ""),
+                    "क्रमांक" to item.optString("serial_no", ""),
+                    "परिवार समूह" to item.optString("family_id", ""),
+                    "PDF" to item.optString("source_pdf", ""),
+                    "पृष्ठ" to item.optString("page", "")
+                ).filter { it.second.isNotBlank() && it.second != "null" }
+                val raw = item.optString("raw_ocr", "")
+                val record = fields.joinToString("\\n") { "${it.first}: ${it.second}" } +
+                    if (raw.isNotBlank()) "\\nमूल OCR पाठ:\\n$raw" else ""
+                if (record.isNotBlank()) imported.add(record)
+            }
+            imported
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     @Deprecated("Deprecated in Android but still supported for document picker")
@@ -417,7 +418,7 @@ class MainActivity : Activity() {
                 setPadding(0, dp(6), 0, dp(5))
             }, matchWrap())
             empty.addView(TextView(this).apply {
-                text = "PDF अपलोड करें या खोज का शब्द बदलें।"
+                text = "खोज का शब्द बदलकर दोबारा प्रयास करें।"
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(Color.rgb(111, 125, 142))
