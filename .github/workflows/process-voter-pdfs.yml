@@ -1,0 +1,32 @@
+name: OCR voter-list PDFs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-hin tesseract-ocr-eng fonts-noto-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: pip install -r tools/requirements-ocr.txt
+      - name: OCR all PDFs
+        run: python tools/ocr_voter_pdfs.py
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: voter-ocr-results
+          path: ocr-output/
+          if-no-files-found: error
+          retention-days: 3
