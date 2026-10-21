@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONObject
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -41,6 +42,7 @@ class MainActivity : Activity() {
     private var voterRecords: List<String> = emptyList()
     private val prefs by lazy { getSharedPreferences("voter_slip_local", MODE_PRIVATE) }
     private val pickPdf = 701
+    private val pickJson = 702
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -138,6 +140,24 @@ class MainActivity : Activity() {
         }
         content.addView(import, matchWrap())
 
+        val importJson = Button(this).apply {
+            text = "डेटा JSON फाइल से लोड करें"
+            textSize = 14f
+            isAllCaps = false
+            setTextColor(Color.rgb(39, 66, 96))
+            background = roundedBg(Color.rgb(232, 240, 249), 13)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setOnClickListener {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+                }
+                startActivityForResult(intent, pickJson)
+            }
+        }
+        content.addView(importJson, matchWrap().apply { topMargin = dp(8) })
+
         status = TextView(this).apply {
             text = "शुरू करने के लिए अपनी PDF फाइल चुनें।"
             textSize = 13f
@@ -226,6 +246,56 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == pickPdf && resultCode == RESULT_OK) {
             data?.data?.let { uri -> runOcr(uri) }
+        } else if (requestCode == pickJson && resultCode == RESULT_OK) {
+            data?.data?.let { uri -> importOcrJson(uri) }
+        }
+    }
+
+    private fun importOcrJson(uri: Uri) {
+        status.text = "OCR JSON डेटा पढ़ा जा रहा है…"
+        worker.execute {
+            try {
+                val jsonText = contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "JSON फाइल नहीं खुली" }
+                    input.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                }
+                val rootObject = JSONObject(jsonText)
+                val array = rootObject.optJSONArray("records")
+                    ?: throw IllegalArgumentException("इस JSON में records सूची नहीं मिली")
+                val imported = mutableListOf<String>()
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val fields = listOf(
+                        "नाम" to item.optString("name", ""),
+                        "पिता/पति/अन्य का नाम" to item.optString("relative_name", ""),
+                        "मकान नंबर" to item.optString("house_no", ""),
+                        "आयु" to item.optString("age", ""),
+                        "लिंग" to item.optString("gender", ""),
+                        "EPIC नंबर" to item.optString("epic", ""),
+                        "क्रमांक" to item.optString("serial_no", ""),
+                        "परिवार समूह (प्रारंभिक)" to item.optString("family_id", ""),
+                        "PDF" to item.optString("source_pdf", ""),
+                        "पृष्ठ" to item.optString("page", "")
+                    ).filter { it.second.isNotBlank() && it.second != "null" }
+                    val raw = item.optString("raw_ocr", "")
+                    val record = fields.joinToString("\n") { "${it.first}: ${it.second}" } +
+                        if (raw.isNotBlank()) "\nमूल OCR पाठ:\n$raw" else ""
+                    if (record.isNotBlank()) imported.add(record)
+                }
+                if (imported.isEmpty()) throw IllegalArgumentException("JSON में कोई मतदाता रिकॉर्ड नहीं मिला")
+                prefs.edit().putString("ocr_records", imported.joinToString("\n\n---RECORD---\n\n")).apply()
+                voterRecords = imported
+                runOnUiThread {
+                    status.text = "JSON से ${imported.size} रिकॉर्ड लोड हुए। नाम/विवरण मूल PDF से जाँचें।"
+                    renderResults(voterRecords)
+                    Toast.makeText(this, "OCR डेटा लोड हो गया", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "JSON आयात त्रुटि: ${e.localizedMessage ?: "फाइल पढ़ नहीं पाए"}"
+                    Toast.makeText(this, status.text, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
