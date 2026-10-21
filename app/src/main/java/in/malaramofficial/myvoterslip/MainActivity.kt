@@ -1,4 +1,4 @@
-package in.malaramofficial.myvoterslip
+package `in`.malaramofficial.myvoterslip
 
 import android.app.Activity
 import android.content.Intent
@@ -79,7 +79,7 @@ class MainActivity : Activity() {
         }
         query = EditText(this).apply {
             hint = "नाम, पिता का नाम, मकान नंबर खोजें"
-            singleLine = true
+            setSingleLine(true)
             textSize = 16f
         }
         val search = Button(this).apply {
