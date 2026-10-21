@@ -52,6 +52,14 @@ jobs:
           cp ocr-output/voters.json app/src/main/assets/voters.json
           python3 -c "import json; d=json.load(open('ocr-output/voters.json', encoding='utf-8')); print('PDFs:', len(d.get('source_pdfs', [])), 'records:', d.get('count', 0)); assert len(d.get('source_pdfs', [])) == 7, 'Expected all seven voter-list PDFs'; assert d.get('count', 0) > 0, 'OCR produced no voter records'"
 
+      - name: Save OCR data for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: voter-ocr-data
+          path: ocr-output/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace --warning-mode all
 
